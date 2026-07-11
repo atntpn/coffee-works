@@ -1,0 +1,14 @@
+[package]
+name = "coffee-works"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+esp-idf-svc = { version = "0.45", features = ["binstart"] }
+esp-idf-hal = "0.45"
+embedded-hal = "0.2"
+sh1106 = "0.5"
+embedded-graphics = "0.8"
+esp-backtrace = { version = "0.7", features = ["esp32s3"] }
+esp-println = { version = "0.5", features = ["esp32s3"] }
+rotary-encoder-hal = "0.5"
