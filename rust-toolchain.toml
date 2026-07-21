@@ -1,4 +1,2 @@
 [toolchain]
-channel = "nightly"
-components = ["rust-src", "llvm-tools-preview"]
-targets = ["esp32s3c3-none-elf"]
+channel = "esp"

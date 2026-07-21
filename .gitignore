@@ -1,4 +1,5 @@
 /target
 /.cargo
 /.github
+.DS_Store
 *.rs.bk
