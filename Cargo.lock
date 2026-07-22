@@ -3,6 +3,16 @@
 version = 4
 
 [[package]]
+name = "ads1x1x"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c907ad7732d7d83dafc84f0d9a0909072e86137de28aa97beeb421ef8b648c6"
+dependencies = [
+ "embedded-hal 1.0.0",
+ "nb 1.1.0",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -108,6 +118,7 @@ dependencies = [
 name = "coffee-works"
 version = "0.1.0"
 dependencies = [
+ "ads1x1x",
  "embedded-graphics",
  "embedded-hal 1.0.0",
  "embedded-hal-bus",
@@ -118,8 +129,8 @@ dependencies = [
  "esp-println",
  "esp-storage",
  "heapless",
- "mini-oled",
  "mipidsi",
+ "nb 1.1.0",
 ]
 
 [[package]]
@@ -978,16 +989,6 @@ name = "micromath"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3c8dda44ff03a2f238717214da50f65d5a53b45cd213a7370424ffdb6fae815"
-
-[[package]]
-name = "mini-oled"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d967e999b08f78032489ec16a892089869ad58886c0322fda1c6b4dc8ffabf4"
-dependencies = [
- "embedded-graphics-core",
- "embedded-hal 1.0.0",
-]
 
 [[package]]
 name = "minijinja"

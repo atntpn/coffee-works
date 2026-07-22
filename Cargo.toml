@@ -10,7 +10,8 @@ esp-println = { version = "0.13.1", features = ["esp32s3", "auto"] }
 esp-bootloader-esp-idf = "=0.1.0"
 embedded-graphics = "0.8.1"
 embedded-hal = "1.0.0"
-mini-oled = "0.1.3"
+ads1x1x = "0.3.0"
+nb = "1.1.0"
 heapless = "0.8.0"
 mipidsi = { version = "0.10.0", default-features = false }
 embedded-hal-bus = "0.3.0"

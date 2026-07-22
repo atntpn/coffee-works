@@ -9,8 +9,6 @@ const EXTRACTION_RESTART_HYSTERESIS_BAR: f32 = 0.05;
 // permet de considérer la chaudière prête sans attendre un franchissement
 // exact rendu peu probable par le bruit de mesure.
 const STEAM_READY_TOLERANCE_BAR: f32 = 0.05;
-const STEAM_VALVE_OPEN_DELAY_US: u64 = 500_000;
-const EXTRACTION_VALVE_OPEN_DELAY_US: u64 = 700_000;
 const STEAM_FILL_TIMEOUT_US: u64 = 180_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -141,7 +139,7 @@ impl MachineAutomation {
             }
             return AutomationOutputs {
                 pump_on: true,
-                steam_valve_open: self.phase_elapsed_us() >= STEAM_VALVE_OPEN_DELAY_US,
+                steam_valve_open: true,
                 extraction_valve_open: false,
             };
         }
@@ -172,11 +170,9 @@ impl MachineAutomation {
         } else {
             self.set_phase(AutomationPhase::ExtractionPressure);
             AutomationOutputs {
-                // La pompe prend son régime avant l'ouverture de la voie
-                // extraction, 700 ms plus tard.
                 pump_on: true,
                 steam_valve_open: false,
-                extraction_valve_open: self.phase_elapsed_us() >= EXTRACTION_VALVE_OPEN_DELAY_US,
+                extraction_valve_open: true,
             }
         }
     }

@@ -509,7 +509,7 @@ where
             "PUISSANCE DE CHAUFFE",
             state.boiler_heater_duty_percent,
         );
-        self.footer("Tourner: modifier la consigne  -  Appuyer: retour");
+        self.footer("Tourner: regler  -  Appuyer: valider");
     }
 
     fn draw_group(&mut self, state: UiState) {
@@ -527,7 +527,7 @@ where
             "PUISSANCE DE CHAUFFE",
             state.group_heater_duty_percent,
         );
-        self.footer("Tourner: modifier la consigne  -  Appuyer: retour");
+        self.footer("Tourner: regler  -  Appuyer: valider");
     }
 
     fn draw_extraction(&mut self, state: UiState) {

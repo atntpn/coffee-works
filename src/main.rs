@@ -3,7 +3,6 @@
 
 mod automation;
 mod buzzer;
-mod display;
 mod encoder;
 mod group_heater;
 mod heater;
@@ -16,9 +15,11 @@ mod tft;
 mod valve;
 mod water;
 
-use automation::{AutomationOutputs, MachineAutomation, EXTRACTION_TARGET_STEP_BAR};
+use automation::{
+    AutomationOutputs, MachineAutomation, EXTRACTION_TARGET_MAX_BAR, EXTRACTION_TARGET_MIN_BAR,
+    EXTRACTION_TARGET_STEP_BAR,
+};
 use buzzer::BuzzerController;
-use display::DisplayManager;
 use encoder::{EncoderEvent, EncoderManager};
 use esp_backtrace as _;
 use esp_hal::{
@@ -37,7 +38,7 @@ use esp_hal::{
 };
 use esp_println::println;
 use group_heater::{GroupHeaterController, TARGET_STEP_C};
-use heater::{HeaterController, TARGET_STEP_BAR};
+use heater::{HeaterController, TARGET_MAX_BAR, TARGET_MIN_BAR, TARGET_STEP_BAR};
 use pressure::{PressureError, PressureSample, PressureSensor};
 use pump::PumpController;
 use settings::{MachineSettings, SettingsStore};
@@ -55,16 +56,6 @@ fn main() -> ! {
     let mut delay = Delay::new();
 
     println!("WeAct Studio ESP32-S3 demarree !");
-
-    let i2c = I2c::new(
-        peripherals.I2C0,
-        I2cConfig::default()
-            .with_frequency(400.kHz())
-            .with_timeout(BusTimeout::Maximum),
-    )
-    .unwrap()
-    .with_sda(peripherals.GPIO8)
-    .with_scl(peripherals.GPIO9);
 
     let pressure_i2c = I2c::new(
         peripherals.I2C1,
@@ -94,15 +85,15 @@ fn main() -> ! {
             .with_mode(Mode::_0),
     )
     .unwrap()
-    .with_sck(peripherals.GPIO36)
-    .with_mosi(peripherals.GPIO35);
+    .with_sck(peripherals.GPIO35)
+    .with_mosi(peripherals.GPIO36);
 
     let mut tft_transfer_buffer = [0_u8; 512];
     let mut tft = match TftManager::new(
         tft_spi,
+        peripherals.GPIO39,
+        peripherals.GPIO38,
         peripherals.GPIO37,
-        peripherals.GPIO40,
-        peripherals.GPIO41,
         &mut delay,
         &mut tft_transfer_buffer,
     ) {
@@ -115,25 +106,23 @@ fn main() -> ! {
         }
     };
 
-    let mut display = match DisplayManager::new(i2c, &delay) {
-        Ok(display) => display,
+    let mut encoder = EncoderManager::new(peripherals.GPIO1, peripherals.GPIO2, peripherals.GPIO42);
+    let mut pressure = match PressureSensor::new(pressure_i2c) {
+        Ok(pressure) => pressure,
         Err(error) => {
-            println!("Ecran SH1106 indisponible: {:?}", error);
+            println!("Initialisation ADS1115 impossible: {:?}", error);
             loop {
                 delay.delay_millis(1_000);
             }
         }
     };
-
-    let mut encoder = EncoderManager::new(peripherals.GPIO1, peripherals.GPIO2, peripherals.GPIO3);
-    let mut pressure = PressureSensor::new(pressure_i2c);
     let mut temperature = TemperatureSensor::new(temperature_spi, peripherals.GPIO10);
-    let mut pump = PumpController::new(peripherals.GPIO16);
+    let mut pump = PumpController::new(peripherals.GPIO47);
     let mut boiler_heater = HeaterController::new(peripherals.GPIO17);
     let mut group_heater = GroupHeaterController::new(peripherals.GPIO18);
     let mut water = WaterLevelSensor::new(peripherals.GPIO7);
-    let mut tank = TankWaterSensor::new(peripherals.GPIO5);
-    let mut steam_valve = ValveController::new(peripherals.GPIO6);
+    let mut tank = TankWaterSensor::new(peripherals.GPIO45);
+    let mut steam_valve = ValveController::new(peripherals.GPIO48);
     let mut extraction_valve = ValveController::new(peripherals.GPIO21);
     let mut automation = MachineAutomation::new();
     let mut ledc = Ledc::new(peripherals.LEDC);
@@ -198,10 +187,11 @@ fn main() -> ! {
     let mut temperature_c = None;
     let mut current_page = DisplayPage::Standby;
     let mut menu_item = MenuItem::SteamBoiler;
+    let mut steam_target_draft = boiler_heater.target_bar();
+    let mut extraction_target_draft = automation.extraction_target_bar();
     let mut sound_setting = SoundSetting::Startup;
     let mut pressure_error_reported = false;
     let mut temperature_error_reported = false;
-    let mut oled_dirty = true;
     let mut tft_dirty = true;
     let mut last_display_refresh_at = time::now().ticks().wrapping_sub(200_000);
     let mut last_automation_phase = automation.phase();
@@ -213,18 +203,18 @@ fn main() -> ! {
     let mut settings_dirty = false;
     let mut settings_changed_at = time::now().ticks();
 
-    println!("Encodeur configure sur CLK=GPIO1, DT=GPIO2, SW=GPIO3");
+    println!("Encodeur configure sur CLK=GPIO1, DT=GPIO2, SW=GPIO42");
     println!("Buzzer MH-FMD configure sur GPIO4, VCC=5V, actif LOW");
-    println!("Electrovanne vapeur configuree sur GPIO6, LOW=OUVERTE, HIGH=FERMEE");
+    println!("Electrovanne vapeur configuree sur GPIO48, LOW=OUVERTE, HIGH=FERMEE");
     println!("Electrovanne extraction configuree sur GPIO21, LOW=OUVERTE, HIGH=FERMEE");
-    println!("Commande pompe configuree sur GPIO16");
+    println!("Commande pompe configuree sur GPIO47");
     println!("SSR chaudiere configure sur GPIO17, active HIGH");
     println!("SSR groupe configure sur GPIO18, active HIGH");
     println!("Controleur niveau eau configure sur GPIO7, contact sec NO vers GND ESP32");
-    println!("Capteur du bac configure sur GPIO5, LOW = eau presente");
+    println!("Capteur du bac configure sur GPIO45, LOW = eau presente");
     println!("ADS1115 configure sur SDA=GPIO11, SCL=GPIO12: vapeur=A0, extraction=A1");
     println!("MAX31865 groupe configure sur CS=GPIO10, SDO=GPIO13, SDI=GPIO14, CLK=GPIO15");
-    println!("TFT ST7796 configure sur CS=GPIO37, DC=GPIO40, RES=GPIO41, SDA=GPIO35, SCL=GPIO36");
+    println!("TFT ST7796 configure sur CS=GPIO39, DC=GPIO38, RES=GPIO37, SDA=GPIO36, SCL=GPIO35");
     println!(
         "Eau initiale: {}",
         if water_is_full { "PLEIN" } else { "PAS PLEIN" }
@@ -242,7 +232,6 @@ fn main() -> ! {
     }
     macro_rules! refresh_live_data_display {
         () => {
-            oled_dirty = true;
             if matches!(
                 current_page,
                 DisplayPage::Home
@@ -263,6 +252,7 @@ fn main() -> ! {
     }
     loop {
         if let Some(event) = encoder.poll() {
+            println!("Encodeur: {:?}", event);
             match event {
                 EncoderEvent::Button if current_page != DisplayPage::Standby => buzzer.play_click(),
                 EncoderEvent::Clockwise | EncoderEvent::CounterClockwise
@@ -288,9 +278,15 @@ fn main() -> ! {
                 (DisplayPage::Menu, EncoderEvent::CounterClockwise) => menu_item.previous(),
                 (DisplayPage::Menu, EncoderEvent::Button) => match menu_item {
                     MenuItem::Home => current_page = DisplayPage::Home,
-                    MenuItem::SteamBoiler => current_page = DisplayPage::SteamBoiler,
+                    MenuItem::SteamBoiler => {
+                        steam_target_draft = boiler_heater.target_bar();
+                        current_page = DisplayPage::SteamBoiler;
+                    }
                     MenuItem::Group => current_page = DisplayPage::Group,
-                    MenuItem::ExtractionPressure => current_page = DisplayPage::ExtractionPressure,
+                    MenuItem::ExtractionPressure => {
+                        extraction_target_draft = automation.extraction_target_bar();
+                        current_page = DisplayPage::ExtractionPressure;
+                    }
                     MenuItem::Status => current_page = DisplayPage::Status,
                     MenuItem::Settings => current_page = DisplayPage::Settings,
                     MenuItem::Standby => {
@@ -305,16 +301,20 @@ fn main() -> ! {
                     }
                 },
                 (DisplayPage::SteamBoiler, EncoderEvent::Clockwise) => {
-                    boiler_heater.adjust_target(TARGET_STEP_BAR);
-                    mark_settings_dirty!();
-                    boiler_heater.update_control(system_enabled, steam_pressure_bars);
-                    println!("Consigne pression: {:.2} bar", boiler_heater.target_bar());
+                    steam_target_draft = (steam_target_draft + TARGET_STEP_BAR)
+                        .clamp(TARGET_MIN_BAR, TARGET_MAX_BAR);
+                    println!(
+                        "Consigne vapeur proposee: {:.2} bar - cliquer pour valider",
+                        steam_target_draft
+                    );
                 }
                 (DisplayPage::SteamBoiler, EncoderEvent::CounterClockwise) => {
-                    boiler_heater.adjust_target(-TARGET_STEP_BAR);
-                    mark_settings_dirty!();
-                    boiler_heater.update_control(system_enabled, steam_pressure_bars);
-                    println!("Consigne pression: {:.2} bar", boiler_heater.target_bar());
+                    steam_target_draft = (steam_target_draft - TARGET_STEP_BAR)
+                        .clamp(TARGET_MIN_BAR, TARGET_MAX_BAR);
+                    println!(
+                        "Consigne vapeur proposee: {:.2} bar - cliquer pour valider",
+                        steam_target_draft
+                    );
                 }
                 (DisplayPage::Group, EncoderEvent::Clockwise) => {
                     group_heater.adjust_target(TARGET_STEP_C);
@@ -329,20 +329,41 @@ fn main() -> ! {
                     println!("Consigne groupe: {:.0} C", group_heater.target_c());
                 }
                 (DisplayPage::ExtractionPressure, EncoderEvent::Clockwise) => {
-                    automation.adjust_extraction_target(EXTRACTION_TARGET_STEP_BAR);
-                    mark_settings_dirty!();
+                    extraction_target_draft = (extraction_target_draft
+                        + EXTRACTION_TARGET_STEP_BAR)
+                        .clamp(EXTRACTION_TARGET_MIN_BAR, EXTRACTION_TARGET_MAX_BAR);
                     println!(
-                        "Consigne extraction: {:.2} bar",
-                        automation.extraction_target_bar()
+                        "Consigne extraction proposee: {:.2} bar - cliquer pour valider",
+                        extraction_target_draft
                     );
                 }
                 (DisplayPage::ExtractionPressure, EncoderEvent::CounterClockwise) => {
-                    automation.adjust_extraction_target(-EXTRACTION_TARGET_STEP_BAR);
+                    extraction_target_draft = (extraction_target_draft
+                        - EXTRACTION_TARGET_STEP_BAR)
+                        .clamp(EXTRACTION_TARGET_MIN_BAR, EXTRACTION_TARGET_MAX_BAR);
+                    println!(
+                        "Consigne extraction proposee: {:.2} bar - cliquer pour valider",
+                        extraction_target_draft
+                    );
+                }
+                (DisplayPage::SteamBoiler, EncoderEvent::Button) => {
+                    boiler_heater.set_target(steam_target_draft);
+                    mark_settings_dirty!();
+                    boiler_heater.update_control(system_enabled, steam_pressure_bars);
+                    println!(
+                        "Consigne vapeur validee: {:.2} bar",
+                        boiler_heater.target_bar()
+                    );
+                    current_page = DisplayPage::Menu;
+                }
+                (DisplayPage::ExtractionPressure, EncoderEvent::Button) => {
+                    automation.set_extraction_target(extraction_target_draft);
                     mark_settings_dirty!();
                     println!(
-                        "Consigne extraction: {:.2} bar",
+                        "Consigne extraction validee: {:.2} bar",
                         automation.extraction_target_bar()
                     );
+                    current_page = DisplayPage::Menu;
                 }
                 (DisplayPage::Settings, EncoderEvent::Clockwise) => sound_setting.next(),
                 (DisplayPage::Settings, EncoderEvent::CounterClockwise) => sound_setting.previous(),
@@ -365,13 +386,7 @@ fn main() -> ! {
                     }
                     SoundSetting::Back => current_page = DisplayPage::Menu,
                 },
-                (
-                    DisplayPage::SteamBoiler
-                    | DisplayPage::Group
-                    | DisplayPage::ExtractionPressure
-                    | DisplayPage::Status,
-                    EncoderEvent::Button,
-                ) => {
+                (DisplayPage::Group | DisplayPage::Status, EncoderEvent::Button) => {
                     current_page = DisplayPage::Menu;
                 }
                 (DisplayPage::Status, _) => {}
@@ -426,6 +441,9 @@ fn main() -> ! {
                         }
                         PressureError::InvalidConversionState => {
                             println!("Cycle de conversion ADS1115 incoherent")
+                        }
+                        PressureError::InvalidDriverConfiguration => {
+                            println!("Configuration du pilote ADS1115 invalide")
                         }
                     }
                     pressure_error_reported = true;
@@ -491,8 +509,7 @@ fn main() -> ! {
             extraction_pressure_bars,
         );
         if automation_outputs.pump_on {
-            // Au démarrage, la pompe prend son régime avant qu'une vanne ne
-            // soit éventuellement ouverte par l'automatisme 500 ms plus tard.
+            // La pompe et la vanne sélectionnée sont commandées dans le même cycle.
             pump.set_on(true);
             steam_valve.set_open(automation_outputs.steam_valve_open);
             extraction_valve.set_open(automation_outputs.extraction_valve_open);
@@ -579,20 +596,8 @@ fn main() -> ! {
         }
 
         let now = time::now().ticks();
-        if (oled_dirty || tft_dirty) && now.wrapping_sub(last_display_refresh_at) >= 200_000 {
+        if tft_dirty && now.wrapping_sub(last_display_refresh_at) >= 200_000 {
             last_display_refresh_at = now;
-            if oled_dirty {
-                match display.show_telemetry(
-                    steam_pressure_bars,
-                    extraction_pressure_bars,
-                    temperature_c,
-                ) {
-                    Ok(()) => oled_dirty = false,
-                    Err(error) => {
-                        println!("Erreur de communication avec l'OLED: {:?}", error);
-                    }
-                }
-            }
             if tft_dirty {
                 match tft.show_page(
                     current_page,
@@ -602,11 +607,21 @@ fn main() -> ! {
                         tank_has_water,
                         steam_pressure_bars,
                         extraction_pressure_bars,
-                        extraction_target_pressure_bar: automation.extraction_target_bar(),
+                        extraction_target_pressure_bar: if current_page
+                            == DisplayPage::ExtractionPressure
+                        {
+                            extraction_target_draft
+                        } else {
+                            automation.extraction_target_bar()
+                        },
                         extraction_ready: automation.extraction_ready(),
                         temperature_c,
                         boiler_heater_duty_percent: boiler_heater.duty_percent(),
-                        target_pressure_bar: boiler_heater.target_bar(),
+                        target_pressure_bar: if current_page == DisplayPage::SteamBoiler {
+                            steam_target_draft
+                        } else {
+                            boiler_heater.target_bar()
+                        },
                         group_heater_duty_percent: group_heater.duty_percent(),
                         target_group_temperature_c: group_heater.target_c(),
                         system_enabled,

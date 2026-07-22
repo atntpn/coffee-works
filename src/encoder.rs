@@ -5,9 +5,9 @@ use esp_hal::{
 };
 
 const BUTTON_DEBOUNCE_US: u64 = 5_000;
-const ROTATION_DEBOUNCE_US: u64 = 5_000;
+const ROTATION_DEBOUNCE_US: u64 = 1_500;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum EncoderEvent {
     Clockwise,
     CounterClockwise,
@@ -22,7 +22,6 @@ pub struct EncoderManager<'d> {
     last_rotation_at: u64,
     last_raw_button: bool,
     stable_button: bool,
-    idle_button: bool,
     button_changed_at: u64,
 }
 
@@ -47,7 +46,6 @@ impl<'d> EncoderManager<'d> {
             last_rotation_at: now.wrapping_sub(ROTATION_DEBOUNCE_US),
             last_raw_button: raw_button,
             stable_button: raw_button,
-            idle_button: raw_button,
             button_changed_at: now,
         }
     }
@@ -61,11 +59,9 @@ impl<'d> EncoderManager<'d> {
         } else if raw_button != self.stable_button
             && now.wrapping_sub(self.button_changed_at) >= BUTTON_DEBOUNCE_US
         {
-            let was_pressed = self.stable_button != self.idle_button;
+            let was_pressed = self.stable_button;
             self.stable_button = raw_button;
-            let is_pressed = self.stable_button != self.idle_button;
-            if is_pressed && !was_pressed {
-                // Un appui doit être prioritaire sur un éventuel parasite de rotation.
+            if self.stable_button && !was_pressed {
                 self.last_clk_high = self.clk.is_high();
                 return Some(EncoderEvent::Button);
             }
